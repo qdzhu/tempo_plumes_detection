@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tempo-plumes"
+version = "0.2.1"
+description = "TEMPO NO2/HCHO plume detection using HRRR winds + batch + patch generation"
+requires-python = ">=3.9"
+dependencies = [
+  "numpy",
+  "xarray",
+  "netCDF4",
+  "scipy",
+  "scikit-image",
+  "pandas",
+]
+
+[project.optional-dependencies]
+geotiff = ["rasterio"]
+
+[tool.setuptools.packages.find]
+include = ["tempo_plumes*"]
+
+[project.scripts]
+tempo-plume-detect = "tempo_plumes.cli:main"

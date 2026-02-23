@@ -1,0 +1,20 @@
+# /bin/csh
+# ----------------Parameters---------------------- #
+#$ -S /bin/csh
+#$ -pe mthread 1
+#$ -q lThC.q
+#$ -l mres=100G,h_data=100G,h_vmem=100G,himem
+#$ -cwd
+#$ -j y
+#$ -N rotate-plumes
+#$ -o rotate-plumes.log
+#
+# ----------------Modules------------------------- #
+#
+# ----------------Your Commands------------------- #
+#
+echo + `date` job $JOB_NAME started in $QUEUE with jobID=$JOB_ID on $HOSTNAME
+#
+conda activate melodies-monet-v1
+python run-batch-08.py
+echo = `date` job $JOB_NAME done

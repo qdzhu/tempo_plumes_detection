@@ -1,0 +1,20 @@
+# /bin/csh
+# ----------------Parameters---------------------- #
+#$ -S /bin/csh
+#$ -pe mthread 4
+#$ -q lThC.q
+#$ -l mres=20G,h_data=20G,h_vmem=20G
+#$ -cwd
+#$ -j y
+#$ -N plume-batch
+#$ -o plume-batch.log
+#
+# ----------------Modules------------------------- #
+#
+# ----------------Your Commands------------------- #
+#
+echo + `date` job $JOB_NAME started in $QUEUE with jobID=$JOB_ID on $HOSTNAME
+#
+conda activate py39_recap_def
+python run_plume_batch.py
+echo = `date` job $JOB_NAME done
