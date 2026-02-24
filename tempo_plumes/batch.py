@@ -225,25 +225,27 @@ def run_batch(
     return out_csv
 
 
-def summarize_from_netcdf(out_dir: str) -> str:
+def summarize_from_netcdf(out_dir: str, max_workers: int = 8) -> str:
     """
     Rebuild batch_summary.csv from existing NetCDF files under out_dir/netcdf/.
 
     Each .nc file's global attributes contain detection metrics plus plant_lon/plant_lat.
     plant_id and tempo_time_utc are parsed from the filename convention:
         <plant_id>_<YYYYmmddTHHMMSSZ>.nc
+
+    Uses netCDF4 directly (faster than xarray for attribute-only reads) and
+    reads files in parallel with ThreadPoolExecutor.
     """
+    import netCDF4 as ncdf
     from datetime import timezone, datetime
 
     nc_paths = sorted(glob.glob(os.path.join(out_dir, "netcdf", "*", "*.nc")))
     if not nc_paths:
         raise FileNotFoundError(f"No NetCDF files found under {os.path.join(out_dir, 'netcdf')}")
 
-    rows = []
-    for nc_path in nc_paths:
+    def _read_one(nc_path):
         plant_id = os.path.basename(os.path.dirname(nc_path))
-        stem = os.path.splitext(os.path.basename(nc_path))[0]  # e.g. plantA_20230601T120000Z
-        # strip plant_id prefix to get tstr
+        stem = os.path.splitext(os.path.basename(nc_path))[0]
         tstr = stem[len(plant_id) + 1:] if stem.startswith(plant_id + "_") else stem
 
         try:
@@ -252,15 +254,18 @@ def summarize_from_netcdf(out_dir: str) -> str:
             tempo_time_utc = tstr
 
         try:
-            ds = xr.open_dataset(nc_path)
-            attrs = dict(ds.attrs)
+            ds = ncdf.Dataset(nc_path, "r")
+            attrs = {k: ds.getncattr(k) for k in ds.ncattrs()}
             ds.close()
         except Exception as e:
             attrs = {"error": str(e)}
 
         row = {"plant_id": plant_id, "tempo_time_utc": tempo_time_utc, "out_nc": nc_path}
         row.update(attrs)
-        rows.append(row)
+        return row
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        rows = list(executor.map(_read_one, nc_paths))
 
     summary = pd.DataFrame(rows)
     out_csv = os.path.join(out_dir, "batch_summary.csv")
