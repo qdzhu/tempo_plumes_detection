@@ -3,10 +3,13 @@ from __future__ import annotations
 import os
 import glob
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from multiprocessing import Pool
 
+import netCDF4 as ncdf
 import pandas as pd
 import numpy as np
 import xarray as xr
+from datetime import timezone, datetime
 
 from .pipeline import load_scene, detect_for_plant
 from .geo import build_hrrr_tree
@@ -225,6 +228,29 @@ def run_batch(
     return out_csv
 
 
+def _read_nc_attrs(nc_path: str) -> dict:
+    """Read global attributes from a single NetCDF file. Module-level for multiprocessing."""
+    plant_id = os.path.basename(os.path.dirname(nc_path))
+    stem = os.path.splitext(os.path.basename(nc_path))[0]
+    tstr = stem[len(plant_id) + 1:] if stem.startswith(plant_id + "_") else stem
+
+    try:
+        tempo_time_utc = datetime.strptime(tstr, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
+    except ValueError:
+        tempo_time_utc = tstr
+
+    try:
+        ds = ncdf.Dataset(nc_path, "r")
+        attrs = {k: ds.getncattr(k) for k in ds.ncattrs()}
+        ds.close()
+    except Exception as e:
+        attrs = {"error": str(e)}
+
+    row = {"plant_id": plant_id, "tempo_time_utc": tempo_time_utc, "out_nc": nc_path}
+    row.update(attrs)
+    return row
+
+
 def summarize_from_netcdf(out_dir: str, max_workers: int = 8) -> str:
     """
     Rebuild batch_summary.csv from existing NetCDF files under out_dir/netcdf/.
@@ -234,38 +260,14 @@ def summarize_from_netcdf(out_dir: str, max_workers: int = 8) -> str:
         <plant_id>_<YYYYmmddTHHMMSSZ>.nc
 
     Uses netCDF4 directly (faster than xarray for attribute-only reads) and
-    reads files in parallel with ThreadPoolExecutor.
+    reads files in parallel with multiprocessing.Pool (avoids netCDF4/HDF5 thread-safety issues).
     """
-    import netCDF4 as ncdf
-    from datetime import timezone, datetime
-
     nc_paths = sorted(glob.glob(os.path.join(out_dir, "netcdf", "*", "*.nc")))
     if not nc_paths:
         raise FileNotFoundError(f"No NetCDF files found under {os.path.join(out_dir, 'netcdf')}")
 
-    def _read_one(nc_path):
-        plant_id = os.path.basename(os.path.dirname(nc_path))
-        stem = os.path.splitext(os.path.basename(nc_path))[0]
-        tstr = stem[len(plant_id) + 1:] if stem.startswith(plant_id + "_") else stem
-
-        try:
-            tempo_time_utc = datetime.strptime(tstr, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
-        except ValueError:
-            tempo_time_utc = tstr
-
-        try:
-            ds = ncdf.Dataset(nc_path, "r")
-            attrs = {k: ds.getncattr(k) for k in ds.ncattrs()}
-            ds.close()
-        except Exception as e:
-            attrs = {"error": str(e)}
-
-        row = {"plant_id": plant_id, "tempo_time_utc": tempo_time_utc, "out_nc": nc_path}
-        row.update(attrs)
-        return row
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        rows = list(executor.map(_read_one, nc_paths))
+    with Pool(processes=max_workers) as pool:
+        rows = pool.map(_read_nc_attrs, nc_paths)
 
     summary = pd.DataFrame(rows)
     out_csv = os.path.join(out_dir, "batch_summary.csv")
