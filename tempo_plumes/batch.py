@@ -251,7 +251,19 @@ def _read_nc_attrs(nc_path: str) -> dict:
     return row
 
 
-def summarize_from_netcdf(out_dir: str, max_workers: int = 8) -> str:
+def _iter_nc_paths(netcdf_dir: str):
+    """Walk netcdf/<plant_id>/*.nc using scandir (faster than glob on large directories)."""
+    with os.scandir(netcdf_dir) as top:
+        for plant_entry in top:
+            if not plant_entry.is_dir():
+                continue
+            with os.scandir(plant_entry.path) as bot:
+                for f in bot:
+                    if f.name.endswith(".nc") and f.is_file():
+                        yield f.path
+
+
+def summarize_from_netcdf(out_dir: str, max_workers: int = 8, chunksize: int = 500) -> str:
     """
     Rebuild batch_summary.csv from existing NetCDF files under out_dir/netcdf/.
 
@@ -261,15 +273,29 @@ def summarize_from_netcdf(out_dir: str, max_workers: int = 8) -> str:
 
     Uses netCDF4 directly (faster than xarray for attribute-only reads) and
     reads files in parallel with multiprocessing.Pool (avoids netCDF4/HDF5 thread-safety issues).
+    Uses imap_unordered + streaming CSV writes to avoid loading all results into RAM at once.
     """
-    nc_paths = sorted(glob.glob(os.path.join(out_dir, "netcdf", "*", "*.nc")))
-    if not nc_paths:
-        raise FileNotFoundError(f"No NetCDF files found under {os.path.join(out_dir, 'netcdf')}")
+    netcdf_dir = os.path.join(out_dir, "netcdf")
+    if not os.path.isdir(netcdf_dir):
+        raise FileNotFoundError(f"No netcdf directory found at {netcdf_dir}")
 
-    with Pool(processes=max_workers) as pool:
-        rows = pool.map(_read_nc_attrs, nc_paths)
-
-    summary = pd.DataFrame(rows)
     out_csv = os.path.join(out_dir, "batch_summary.csv")
-    summary.to_csv(out_csv, index=False)
+    nc_paths = list(_iter_nc_paths(netcdf_dir))
+    if not nc_paths:
+        raise FileNotFoundError(f"No NetCDF files found under {netcdf_dir}")
+
+    print(f"Found {len(nc_paths):,} NetCDF files. Processing with {max_workers} workers...")
+
+    header_written = False
+    n_done = 0
+    with Pool(processes=max_workers) as pool, open(out_csv, "w", newline="") as fh:
+        for row in pool.imap_unordered(_read_nc_attrs, nc_paths, chunksize=chunksize):
+            df = pd.DataFrame([row])
+            df.to_csv(fh, index=False, header=not header_written)
+            header_written = True
+            n_done += 1
+            if n_done % 100_000 == 0:
+                print(f"  {n_done:,} / {len(nc_paths):,} files processed...")
+
+    print(f"Done. {n_done:,} rows written to {out_csv}")
     return out_csv
