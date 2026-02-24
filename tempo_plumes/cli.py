@@ -6,7 +6,7 @@ import xarray as xr
 import numpy as np
 
 from .pipeline import run_one_plume_detection
-from .batch import run_batch, summarize_from_netcdf
+from .batch import run_batch, summarize_from_netcdf, summarize_by_plant
 
 
 def _cmd_single(args):
@@ -99,7 +99,13 @@ def main():
 
     p3 = sub.add_parser("summarize", help="Rebuild batch_summary.csv from existing NetCDF files.")
     p3.add_argument("--out-dir", required=True, help="Same out_dir used in the batch run.")
-    p3.set_defaults(func=lambda a: print("Wrote summary:", summarize_from_netcdf(a.out_dir)))
+    p3.add_argument("--by-plant", action="store_true", help="Write a summary.csv per plant directory instead of one combined CSV.")
+    p3.add_argument("--workers", type=int, default=8)
+    p3.set_defaults(func=lambda a: (
+        summarize_by_plant(a.out_dir, max_workers=a.workers)
+        if a.by_plant else
+        print("Wrote summary:", summarize_from_netcdf(a.out_dir, max_workers=a.workers))
+    ))
 
     args = p.parse_args()
     args.func(args)

@@ -299,3 +299,62 @@ def summarize_from_netcdf(out_dir: str, max_workers: int = 8, chunksize: int = 5
 
     print(f"Done. {n_done:,} rows written to {out_csv}")
     return out_csv
+
+
+def _summarize_plant_dir(plant_dir: str) -> str:
+    """
+    Read all NetCDF attrs in one plant directory and write a per-plant summary.csv.
+    Returns the path to the written CSV, or empty string if no files found.
+    Module-level for multiprocessing.
+    """
+    plant_id = os.path.basename(plant_dir)
+    rows = []
+    with os.scandir(plant_dir) as it:
+        for entry in it:
+            if not entry.name.endswith(".nc") or not entry.is_file():
+                continue
+            stem = entry.name[:-3]
+            tstr = stem[len(plant_id) + 1:] if stem.startswith(plant_id + "_") else stem
+            try:
+                tempo_time_utc = datetime.strptime(tstr, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
+            except ValueError:
+                tempo_time_utc = tstr
+            try:
+                ds = ncdf.Dataset(entry.path, "r")
+                attrs = {k: ds.getncattr(k) for k in ds.ncattrs()}
+                ds.close()
+            except Exception as e:
+                attrs = {"error": str(e)}
+            row = {"plant_id": plant_id, "tempo_time_utc": tempo_time_utc, "out_nc": entry.path}
+            row.update(attrs)
+            rows.append(row)
+
+    if not rows:
+        return ""
+    out_csv = os.path.join(plant_dir, "summary.csv")
+    pd.DataFrame(rows).sort_values("tempo_time_utc").to_csv(out_csv, index=False)
+    return out_csv
+
+
+def summarize_by_plant(out_dir: str, max_workers: int = 8) -> list[str]:
+    """
+    Write a summary.csv inside each plant's netcdf directory.
+    Parallelizes over plant directories — each worker handles one plant at a time.
+    Returns a list of written CSV paths.
+    """
+    netcdf_dir = os.path.join(out_dir, "netcdf")
+    if not os.path.isdir(netcdf_dir):
+        raise FileNotFoundError(f"No netcdf directory found at {netcdf_dir}")
+
+    plant_dirs = [e.path for e in os.scandir(netcdf_dir) if e.is_dir()]
+    if not plant_dirs:
+        raise FileNotFoundError(f"No plant directories found under {netcdf_dir}")
+
+    print(f"Found {len(plant_dirs):,} plant directories. Processing with {max_workers} workers...")
+
+    with Pool(processes=max_workers) as pool:
+        csv_paths = pool.map(_summarize_plant_dir, plant_dirs)
+
+    written = [p for p in csv_paths if p]
+    print(f"Done. Wrote {len(written):,} per-plant summary CSVs.")
+    return written
