@@ -1,0 +1,20 @@
+# /bin/csh
+# ----------------Parameters---------------------- #
+#$ -S /bin/csh
+#$ -pe mthread 10
+#$ -q lThM.q
+#$ -l mres=200G,h_data=20G,h_vmem=20G,himem
+#$ -cwd
+#$ -j y
+#$ -N plume-summary-perplant
+#$ -o plume-summary-perplant.log
+#
+# ----------------Modules------------------------- #
+#
+# ----------------Your Commands------------------- #
+#
+echo + `date` job $JOB_NAME started in $QUEUE with jobID=$JOB_ID on $HOSTNAME
+#
+conda activate melodies-monet-v1
+python summarize_netcdf_perplant.py
+echo = `date` job $JOB_NAME done
