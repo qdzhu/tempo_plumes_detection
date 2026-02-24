@@ -1,9 +1,9 @@
 # /bin/csh
 # ----------------Parameters---------------------- #
 #$ -S /bin/csh
-#$ -pe mthread 4
-#$ -q lThC.q
-#$ -l mres=20G,h_data=20G,h_vmem=20G
+#$ -pe mthread 10
+#$ -q lThM.q
+#$ -l mres=200G,h_data=20G,h_vmem=20G,himem
 #$ -cwd
 #$ -j y
 #$ -N plume-batch
@@ -15,6 +15,6 @@
 #
 echo + `date` job $JOB_NAME started in $QUEUE with jobID=$JOB_ID on $HOSTNAME
 #
-conda activate py39_recap_def
+conda activate melodies-monet-v1
 python run_plume_batch.py
 echo = `date` job $JOB_NAME done

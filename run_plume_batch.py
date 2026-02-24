@@ -5,14 +5,12 @@ Uses Python-level glob patterns to avoid shell expansion issues.
 """
 import os
 from tempo_plumes.batch import run_batch
+PLANTS_CSV  = "oris_coords_tz.csv"
+TEMPO_GLOB  = "/scratch/sao/qzhu/tempo/TEMPO_NO2_L3_V03/2024/**/*.nc"
+HRRR_GLOB   = "/scratch/sao/qzhu/HRRR/hrrr/**/*.grib2"
+OUT_DIR     = "/scratch/sao/qzhu/AI-projs/Plume-detection/CEMS"
 
-# ── Paths ──────────────────────────────────────────────────────────────────
-PLANTS_CSV  = "ex_plants.csv"
-TEMPO_GLOB  = "Inputs/tempo/TEMPO_NO2_L3_V03/**/*.nc"
-HRRR_GLOB   = "Inputs/hrrr/**/*.grib2"
-OUT_DIR     = "Outputs/batch"
 
-# ── Options ────────────────────────────────────────────────────────────────
 HRRR_ENGINE        = "cfgrib"
 HALF_SIZE_KM       = 80.0
 MAX_DT_HOURS       = 2.0
@@ -21,9 +19,8 @@ MAKE_GEOTIFF       = False
 MAKE_PATCHES       = True
 PATCH_SIZE         = 64
 STRIDE             = 32
-MAX_WORKERS        = 4   # set to 1 for serial; increase up to available cores
+MAX_WORKERS        = 10   # set to 1 for serial; increase up to available cores
 
-# ── Run ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"Starting batch run → {OUT_DIR}")
     out_csv = run_batch(
