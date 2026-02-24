@@ -5,10 +5,8 @@ without re-running any detection.
 """
 from tempo_plumes.batch import summarize_from_netcdf
 
-# ── Paths ──────────────────────────────────────────────────────────────────
-OUT_DIR = "Outputs/batch"
+OUT_DIR = "/scratch/sao/qzhu/AI-projs/Plume-detection/CEMS"
 
-# ── Run ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"Scanning NetCDF files under: {OUT_DIR}/netcdf/")
     out_csv = summarize_from_netcdf(OUT_DIR)
