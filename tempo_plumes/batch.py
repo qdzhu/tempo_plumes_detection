@@ -125,6 +125,11 @@ def run_batch(
         if not pending:
             continue
 
+        # Pre-create all plant output directories in the main thread to avoid
+        # NFS propagation races when threads call os.makedirs concurrently.
+        for p in pending:
+            os.makedirs(os.path.join(out_dir, "netcdf", str(p["plant_id"])), exist_ok=True)
+
         # Load TEMPO + HRRR once per file pair (not once per plant)
         try:
             no2, tlon, tlat, hu, hv, hlon, hlat = load_scene(
