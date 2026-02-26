@@ -105,8 +105,24 @@ def run_batch(
         def _out_nc_path(plant_id):
             return os.path.join(out_dir, "netcdf", plant_id, f"{plant_id}_{tstr}.nc")
 
-        pending = [p for p in plant_rows if not os.path.exists(_out_nc_path(str(p["plant_id"])))]
-        done    = [p for p in plant_rows if     os.path.exists(_out_nc_path(str(p["plant_id"])))]
+        def _is_valid_nc(path: str) -> bool:
+            """Return True only if the file exists and is a readable NetCDF file.
+            Deletes the file if it exists but is corrupt (e.g. from an abrupt stop)."""
+            if not os.path.exists(path):
+                return False
+            try:
+                ds = ncdf.Dataset(path, "r")
+                ds.close()
+                return True
+            except Exception:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+                return False
+
+        pending = [p for p in plant_rows if not _is_valid_nc(_out_nc_path(str(p["plant_id"])))]
+        done    = [p for p in plant_rows if     _is_valid_nc(_out_nc_path(str(p["plant_id"])))]
 
         for p in done:
             plant_id = str(p["plant_id"])
