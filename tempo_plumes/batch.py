@@ -23,6 +23,34 @@ from .match import (
 )
 
 
+def _scan_completed_nc(out_dir: str, plant_ids: list) -> set:
+    """
+    Scan every plant's netcdf directory ONCE before the main loop and return a
+    set of (plant_id, tstr) pairs for files that exist and are non-empty.
+    One directory read per plant — no file opens.
+    """
+    done = set()
+    netcdf_dir = os.path.join(out_dir, "netcdf")
+    for plant_id in plant_ids:
+        plant_dir = os.path.join(netcdf_dir, plant_id)
+        if not os.path.isdir(plant_dir):
+            continue
+        prefix = plant_id + "_"
+        with os.scandir(plant_dir) as it:
+            for entry in it:
+                if not entry.name.endswith(".nc") or not entry.is_file():
+                    continue
+                try:
+                    if entry.stat().st_size == 0:
+                        continue   # skip empty stubs; they'll be overwritten
+                except OSError:
+                    continue
+                stem = entry.name[:-3]   # strip .nc
+                tstr = stem[len(prefix):] if stem.startswith(prefix) else stem
+                done.add((plant_id, tstr))
+    return done
+
+
 def _to_dataset(context: dict, plume_mask: np.ndarray, metrics: dict) -> xr.Dataset:
     ds = xr.Dataset(
         data_vars=dict(
@@ -72,6 +100,11 @@ def run_batch(
 
     hrrr_items = build_hrrr_time_index(hrrr_glob)
 
+    plant_ids = [str(p) for p in plants["plant_id"]]
+    print("Scanning existing output files …")
+    completed_nc = _scan_completed_nc(out_dir, plant_ids)
+    print(f"  {len(completed_nc):,} valid plant×time pairs already on disk.")
+
     rows = []
     hrrr_tree = None
     last_hrrr_path = None
@@ -101,28 +134,12 @@ def run_batch(
         tstr = tempo_time.strftime("%Y%m%dT%H%M%SZ")
         plant_rows = list(plants.to_dict("records"))
 
-        # Check which plants already have output — skip loading entirely if all done
+        # Check which plants already have output — O(1) set lookup, no file I/O.
         def _out_nc_path(plant_id):
             return os.path.join(out_dir, "netcdf", plant_id, f"{plant_id}_{tstr}.nc")
 
-        def _is_valid_nc(path: str) -> bool:
-            """Return True only if the file exists and is a readable NetCDF file.
-            Deletes the file if it exists but is corrupt (e.g. from an abrupt stop)."""
-            if not os.path.exists(path):
-                return False
-            try:
-                ds = ncdf.Dataset(path, "r")
-                ds.close()
-                return True
-            except Exception:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-                return False
-
-        pending = [p for p in plant_rows if not _is_valid_nc(_out_nc_path(str(p["plant_id"])))]
-        done    = [p for p in plant_rows if     _is_valid_nc(_out_nc_path(str(p["plant_id"])))]
+        pending = [p for p in plant_rows if (str(p["plant_id"]), tstr) not in completed_nc]
+        done    = [p for p in plant_rows if (str(p["plant_id"]), tstr) in     completed_nc]
 
         for p in done:
             plant_id = str(p["plant_id"])
