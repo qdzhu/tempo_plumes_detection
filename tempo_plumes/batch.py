@@ -23,11 +23,13 @@ from .match import (
 )
 
 
-def _scan_completed_nc(out_dir: str, plant_ids: list) -> set:
+def _scan_completed_nc(out_dir: str, plant_ids: list, start_tstr: str | None = None) -> set:
     """
     Scan every plant's netcdf directory ONCE before the main loop and return a
     set of (plant_id, tstr) pairs for files that exist and are non-empty.
     One directory read per plant — no file opens.
+    If start_tstr is given (e.g. "20241001T000000Z"), only entries on or after
+    that timestamp are included, keeping the set small for resumed runs.
     """
     done = set()
     netcdf_dir = os.path.join(out_dir, "netcdf")
@@ -40,13 +42,15 @@ def _scan_completed_nc(out_dir: str, plant_ids: list) -> set:
             for entry in it:
                 if not entry.name.endswith(".nc") or not entry.is_file():
                     continue
-                try:
-                    if entry.stat().st_size == 0:
-                        continue   # skip empty stubs; they'll be overwritten
-                except OSError:
-                    continue
                 stem = entry.name[:-3]   # strip .nc
                 tstr = stem[len(prefix):] if stem.startswith(prefix) else stem
+                if start_tstr and tstr < start_tstr:
+                    continue             # outside the requested date range
+                try:
+                    if entry.stat().st_size == 0:
+                        continue         # skip empty stubs; they'll be overwritten
+                except OSError:
+                    continue
                 done.add((plant_id, tstr))
     return done
 
@@ -86,6 +90,7 @@ def run_batch(
     patch_size: int = 64,
     stride: int = 32,
     max_workers: int = 1,
+    start_date: str | None = None,
 ):
     os.makedirs(out_dir, exist_ok=True)
 
@@ -98,11 +103,26 @@ def run_batch(
     if not tempo_files:
         raise ValueError(f"No TEMPO files matched: {tempo_glob}")
 
+    # Optional date filter — keeps both the file list and the completed-set small.
+    start_tstr = None
+    if start_date:
+        from datetime import date
+        # Accept "YYYY-MM-DD", "YYYYMMDD", or any prefix parseable by fromisoformat.
+        sd = start_date.replace("-", "")          # normalise to YYYYMMDD
+        start_tstr = f"{sd}T000000Z"              # tstr-comparable string
+        start_dt   = datetime.strptime(sd, "%Y%m%d").replace(tzinfo=timezone.utc)
+        before = len(tempo_files)
+        tempo_files = [f for f in tempo_files if parse_tempo_time_utc(f) >= start_dt]
+        print(f"start_date={start_date}: kept {len(tempo_files):,} / {before:,} TEMPO files.")
+
+    if not tempo_files:
+        raise ValueError(f"No TEMPO files remain after applying start_date={start_date!r}")
+
     hrrr_items = build_hrrr_time_index(hrrr_glob)
 
     plant_ids = [str(p) for p in plants["plant_id"]]
     print("Scanning existing output files …")
-    completed_nc = _scan_completed_nc(out_dir, plant_ids)
+    completed_nc = _scan_completed_nc(out_dir, plant_ids, start_tstr=start_tstr)
     print(f"  {len(completed_nc):,} valid plant×time pairs already on disk.")
 
     rows = []

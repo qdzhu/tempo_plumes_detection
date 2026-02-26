@@ -20,6 +20,7 @@ MAKE_PATCHES       = True
 PATCH_SIZE         = 64
 STRIDE             = 32
 MAX_WORKERS        = 10   # set to 1 for serial; increase up to available cores
+START_DATE         = "2024-10-01"   # only process TEMPO files on or after this date; set to None for all
 
 if __name__ == "__main__":
     print(f"Starting batch run → {OUT_DIR}")
@@ -37,5 +38,6 @@ if __name__ == "__main__":
         patch_size         = PATCH_SIZE,
         stride             = STRIDE,
         max_workers        = MAX_WORKERS,
+        start_date         = START_DATE,
     )
     print(f"Done. Summary written to: {out_csv}")
